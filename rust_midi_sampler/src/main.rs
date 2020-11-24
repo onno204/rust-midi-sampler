@@ -97,9 +97,6 @@ fn run() -> Result<(), Box<dyn Error>> {
     let out_port: &MidiOutputPort = out_ports.get(output_port_num).ok_or("Error on sellecting input")?;
 
     println!("Opening connection with input \"{}\" and output \"{}\"", midi_in.port_name(in_port)?, midi_out.port_name(out_port)?);
-
-
-    println!("Opened connection");
     let mut conn_out: MidiOutputConnection = midi_out.connect(out_port, "midir-test")?;
 
     for x in get_sampler_pads() {
@@ -109,7 +106,8 @@ fn run() -> Result<(), Box<dyn Error>> {
         send_midi_data(&mut conn_out, &x, PadColor::GreenBlink);
     }
 
-    // // _conn_in needs to be a named parameter, because it needs to be kept alive until the end of the scope
+    // This needs to be called as last because of moving variables
+    // _conn_in needs to be a named parameter, because it needs to be kept alive until the end of the scope
     let _conn_in = midi_in.connect(in_port, "midir-test-read-input", move |_stamp, message, _| {
         incomming_midi_action(&mut conn_out, message);
     }, ())?;
