@@ -21,8 +21,19 @@ enum PadColor {
 enum PadState {
     PadPressed = 144,
     PadReleased = 128,
-    SliderStart = 0,
-    SliderEnd = 127,
+    SliderUsed = 176,
+    UNKOWN = -1,
+}
+
+impl From<u8> for PadState {
+    fn from(n: u8) -> PadState {
+        match n {
+            144 => PadState::PadPressed,
+            128 => PadState::PadReleased,
+            176 => PadState::SliderUsed,
+            _ => PadState::UNKOWN
+        }
+    }
 }
 
 fn main() {
@@ -33,7 +44,12 @@ fn main() {
 }
 
 fn incomming_midi_action(message: &[u8]) -> () {
-    println!("Hey {:?}", message)
+    let action_id: u8 = message[0];
+    let pad_id: u8 = message[1];
+    let action_value: u8 = message[2];
+    println!("action_id: {:?}, pad_id: {:?}, action_value: {:?}", action_id, pad_id, action_value);
+    let action: PadState = action_id.into();
+    println!("padState {:}", action as u8);
 }
 
 fn run() -> Result<(), Box<dyn Error>> {
