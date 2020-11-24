@@ -3,11 +3,12 @@ extern crate midir;
 use std::error::Error;
 use std::io::{stdin, stdout, Write};
 
-use midir::{Ignore, MidiInput, MidiInputPort, MidiInputPorts, MidiOutput, MidiOutputPort, MidiOutputPorts};
+use midir::{MidiInput, MidiInputPort, MidiInputPorts, MidiOutput, MidiOutputConnection, MidiOutputPort, MidiOutputPorts};
 
 const PREFFERED_MIDI_INPUT: &str = "loopMIDI_IN2";
 const PREFFERED_MIDI_OUTPUT: &str = "loopMIDI_OUT_2";
 
+#[allow(dead_code)]
 enum PadColor {
     Off = 00,
     Green = 01,
@@ -18,6 +19,8 @@ enum PadColor {
     YellowBlink = 06,
 }
 
+#[allow(dead_code)]
+#[derive(PartialEq)]
 enum PadState {
     PadPressed = 144,
     PadReleased = 128,
@@ -43,13 +46,42 @@ fn main() {
     }
 }
 
-fn incomming_midi_action(message: &[u8]) -> () {
+fn get_sampler_pads() -> Vec<u8> {
+    let mut pads: Vec<u8> = Vec::new();
+    for x in 32..48 {
+        pads.push(x);
+    }
+    pads
+}
+
+fn get_group_pads() -> Vec<u8> {
+    let mut pads: Vec<u8> = Vec::new();
+    for x in 84..90 {
+        pads.push(x);
+    }
+    pads
+}
+
+fn send_midi_data(conn_out: &mut MidiOutputConnection, pad: &u8, color_code: PadColor) -> bool {
+    match conn_out.send(&[0x90, *pad, color_code as u8]) {
+        Ok(..) => true,
+        Err(..) => false
+    }
+}
+
+fn incomming_midi_action(conn_out: &mut MidiOutputConnection, message: &[u8]) -> () {
     let action_id: u8 = message[0];
     let pad_id: u8 = message[1];
     let action_value: u8 = message[2];
     println!("action_id: {:?}, pad_id: {:?}, action_value: {:?}", action_id, pad_id, action_value);
     let action: PadState = action_id.into();
-    println!("padState {:}", action as u8);
+    if get_sampler_pads().contains(&pad_id) {
+        if action == PadState::PadPressed {
+            send_midi_data(conn_out, &pad_id, PadColor::Red);
+        } else if action == PadState::PadReleased {
+            send_midi_data(conn_out, &pad_id, PadColor::YellowBlink);
+        }
+    }
 }
 
 fn run() -> Result<(), Box<dyn Error>> {
@@ -64,27 +96,23 @@ fn run() -> Result<(), Box<dyn Error>> {
     let out_ports: MidiOutputPorts = midi_out.ports();
     let out_port: &MidiOutputPort = out_ports.get(output_port_num).ok_or("Error on sellecting input")?;
 
-    println!("Opening connection");
-    let in_port_name = midi_in.port_name(in_port)?;
+    println!("Opening connection with input \"{}\" and output \"{}\"", midi_in.port_name(in_port)?, midi_out.port_name(out_port)?);
+
+
+    println!("Opened connection");
+    let mut conn_out: MidiOutputConnection = midi_out.connect(out_port, "midir-test")?;
+
+    for x in get_sampler_pads() {
+        send_midi_data(&mut conn_out, &x, PadColor::YellowBlink);
+    }
+    for x in get_group_pads() {
+        send_midi_data(&mut conn_out, &x, PadColor::GreenBlink);
+    }
 
     // // _conn_in needs to be a named parameter, because it needs to be kept alive until the end of the scope
     let _conn_in = midi_in.connect(in_port, "midir-test-read-input", move |_stamp, message, _| {
-        incomming_midi_action(message);
+        incomming_midi_action(&mut conn_out, message);
     }, ())?;
-
-    println!("Opened connection");
-    let mut conn_out = midi_out.connect(out_port, "midir-test")?;
-
-    let mut send_midi_data = |pad: u8, color_code: PadColor| {
-        let _ = conn_out.send(&[0x90, pad, color_code as u8]);
-    };
-
-    for x in 32..48 {
-        send_midi_data(x, PadColor::Off);
-    }
-    for x in 84..90 {
-        send_midi_data(x, PadColor::Off);
-    }
 
     println!("Press [Enter] to exit.");
     let mut input = String::new();
@@ -104,7 +132,7 @@ fn midi_select_in_port(midi_in: &midir::MidiInput) -> usize {
         _ => {
             for (i, p) in in_ports.iter().enumerate() {
                 if midi_in.port_name(p).unwrap() == PREFFERED_MIDI_INPUT.to_string() {
-                    println!("Choosing the same output as the input port: {}", midi_in.port_name(p).unwrap());
+                    println!("Choosing preferred input port: {}", midi_in.port_name(p).unwrap());
                     return i;
                 }
             }
@@ -113,9 +141,9 @@ fn midi_select_in_port(midi_in: &midir::MidiInput) -> usize {
                 println!("{}: {}", i, midi_in.port_name(p).unwrap());
             }
             print!("Please select input port: ");
-            stdout().flush();
+            stdout().flush().unwrap();
             let mut input = String::new();
-            stdin().read_line(&mut input);
+            stdin().read_line(&mut input).unwrap();
             return input.trim().parse::<usize>().unwrap();
         }
     };
@@ -132,7 +160,7 @@ fn midi_select_out_port(midi_out: &midir::MidiOutput) -> usize {
         _ => {
             for (i, p) in out_ports.iter().enumerate() {
                 if midi_out.port_name(p).unwrap() == PREFFERED_MIDI_OUTPUT.to_string() {
-                    println!("Choosing the same output as the output port: {}", midi_out.port_name(p).unwrap());
+                    println!("Choosing preferred output port: {}", midi_out.port_name(p).unwrap());
                     return i;
                 }
             }
@@ -141,9 +169,9 @@ fn midi_select_out_port(midi_out: &midir::MidiOutput) -> usize {
                 println!("{}: {}", i, midi_out.port_name(p).unwrap());
             }
             print!("Please select output port: ");
-            stdout().flush();
+            stdout().flush().unwrap();
             let mut input = String::new();
-            stdin().read_line(&mut input);
+            stdin().read_line(&mut input).unwrap();
             return input.trim().parse::<usize>().unwrap();
         }
     };
