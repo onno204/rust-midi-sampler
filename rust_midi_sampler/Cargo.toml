@@ -9,3 +9,6 @@ edition = "2018"
 [dependencies]
 midir = "0.7.0"
 midi-control = "0.2.0"
+app_dirs = "1.2.1"
+soundio = "0.2.1"
+lazy_static = "1.4.0"

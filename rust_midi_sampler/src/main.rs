@@ -1,12 +1,36 @@
 extern crate midir;
 
+use std::collections::HashMap;
 use std::error::Error;
+use std::fs;
+use std::fs::ReadDir;
 use std::io::{stdin, stdout, Write};
+use std::path::PathBuf;
+use std::sync::mpsc;
+use std::thread::sleep;
+use std::time::Duration;
 
+use app_dirs::{app_dir, AppDataType, AppInfo, get_app_root};
 use midir::{MidiInput, MidiInputPort, MidiInputPorts, MidiOutput, MidiOutputConnection, MidiOutputPort, MidiOutputPorts};
 
+use lazy_static::lazy_static;
+
+const APP_INFO: AppInfo = AppInfo { name: "midiSampler", author: "onno204" };
 const PREFFERED_MIDI_INPUT: &str = "loopMIDI_IN2";
 const PREFFERED_MIDI_OUTPUT: &str = "loopMIDI_OUT_2";
+
+
+lazy_static! {
+    static ref PADS_MESSAGE_CHANNELS_SENDER: HashMap<&u8, Sender<T>> = {
+        let mut m = HashMap::new();
+        m
+    };
+    static ref PADS_MESSAGE_CHANNELS_RECEIVER: HashMap<&u8, Receiver<T>> = {
+        let mut m = HashMap::new();
+        m
+    };
+}
+
 
 #[allow(dead_code)]
 enum PadColor {
@@ -39,34 +63,27 @@ impl From<u8> for PadState {
     }
 }
 
-fn main() {
-    match run() {
-        Ok(_) => (),
-        Err(err) => println!("Error: {}", err)
-    }
+fn path_check_main_dir() -> () {
+    let mut root_dir: PathBuf = app_dir(AppDataType::UserConfig, &APP_INFO, "").unwrap();
 }
 
-fn get_sampler_pads() -> Vec<u8> {
-    let mut pads: Vec<u8> = Vec::new();
-    for x in 32..48 {
-        pads.push(x);
-    }
-    pads
+fn pad_sample_has_sampling_group(padId: &u8) -> bool {
+    path_check_main_dir();
+    true
 }
 
-fn get_group_pads() -> Vec<u8> {
-    let mut pads: Vec<u8> = Vec::new();
-    for x in 84..90 {
-        pads.push(x);
-    }
-    pads
-}
-
-fn send_midi_data(conn_out: &mut MidiOutputConnection, pad: &u8, color_code: PadColor) -> bool {
-    match conn_out.send(&[0x90, *pad, color_code as u8]) {
-        Ok(..) => true,
-        Err(..) => false
-    }
+fn check_pad_message_channels(padId: &u8) -> (tx, rx) {
+    let pad_channel: std::sync::mpsc = match PADS_MESSAGE_CHANNELS_SENDER.get(padId) {
+        Some(x) => x,
+        None => {
+            let (tx, rx) = mpsc::channel();
+            let mut map = PADS_MESSAGE_CHANNELS_SENDER.lock().unwrap();
+            map.insert(&padId, tx);
+            let mut map = PADS_MESSAGE_CHANNELS_RECEIVER.lock().unwrap();
+            map.insert(&padId, rx);
+            tx
+        }
+    };
 }
 
 fn incomming_midi_action(conn_out: &mut MidiOutputConnection, message: &[u8]) -> () {
@@ -81,6 +98,28 @@ fn incomming_midi_action(conn_out: &mut MidiOutputConnection, message: &[u8]) ->
         } else if action == PadState::PadReleased {
             send_midi_data(conn_out, &pad_id, PadColor::YellowBlink);
         }
+    }
+}
+
+fn disco(conn_out: &mut MidiOutputConnection) -> () {
+    for x in 0..99 {
+        send_midi_data(conn_out, &x, PadColor::Yellow);
+    }
+    sleep(Duration::from_millis(250));
+    for x in 0..99 {
+        send_midi_data(conn_out, &x, PadColor::Green);
+    }
+    sleep(Duration::from_millis(250));
+    for x in 0..99 {
+        send_midi_data(conn_out, &x, PadColor::Red);
+    }
+    sleep(Duration::from_millis(250));
+    disco(conn_out)
+}
+
+fn pads_turn_all_off(conn_out: &mut MidiOutputConnection) -> () {
+    for x in 0..99 {
+        send_midi_data(conn_out, &x, PadColor::Off);
     }
 }
 
@@ -99,11 +138,17 @@ fn run() -> Result<(), Box<dyn Error>> {
     println!("Opening connection with input \"{}\" and output \"{}\"", midi_in.port_name(in_port)?, midi_out.port_name(out_port)?);
     let mut conn_out: MidiOutputConnection = midi_out.connect(out_port, "midir-test")?;
 
+    // pads_turn_all_off(&mut conn_out);
+
     for x in get_sampler_pads() {
         send_midi_data(&mut conn_out, &x, PadColor::YellowBlink);
     }
-    for x in get_group_pads() {
-        send_midi_data(&mut conn_out, &x, PadColor::GreenBlink);
+    for x in get_grouping_pads() {
+        if pad_sample_has_sampling_group(&x) {
+            send_midi_data(&mut conn_out, &x, PadColor::GreenBlink);
+        } else {
+            send_midi_data(&mut conn_out, &x, PadColor::Off);
+        }
     }
 
     // This needs to be called as last because of moving variables
@@ -117,6 +162,13 @@ fn run() -> Result<(), Box<dyn Error>> {
     input.clear();
     stdin().read_line(&mut input)?;
     Ok(())
+}
+
+fn main() {
+    match run() {
+        Ok(_) => (),
+        Err(err) => println!("Error: {}", err)
+    }
 }
 
 fn midi_select_in_port(midi_in: &midir::MidiInput) -> usize {
@@ -173,4 +225,27 @@ fn midi_select_out_port(midi_out: &midir::MidiOutput) -> usize {
             return input.trim().parse::<usize>().unwrap();
         }
     };
+}
+
+fn get_sampler_pads() -> Vec<u8> {
+    let mut pads: Vec<u8> = Vec::new();
+    for x in 32..48 {
+        pads.push(x);
+    }
+    pads
+}
+
+fn get_grouping_pads() -> Vec<u8> {
+    let mut pads: Vec<u8> = Vec::new();
+    for x in 84..90 {
+        pads.push(x);
+    }
+    pads
+}
+
+fn send_midi_data(conn_out: &mut MidiOutputConnection, pad: &u8, color_code: PadColor) -> bool {
+    match conn_out.send(&[0x90, *pad, color_code as u8]) {
+        Ok(..) => true,
+        Err(..) => false
+    }
 }
