@@ -2,35 +2,21 @@ extern crate midir;
 
 use std::collections::HashMap;
 use std::error::Error;
-use std::fs;
-use std::fs::ReadDir;
 use std::io::{stdin, stdout, Write};
 use std::path::PathBuf;
 use std::sync::mpsc;
+use std::sync::Mutex;
 use std::thread::sleep;
 use std::time::Duration;
 
-use app_dirs::{app_dir, AppDataType, AppInfo, get_app_root};
-use midir::{MidiInput, MidiInputPort, MidiInputPorts, MidiOutput, MidiOutputConnection, MidiOutputPort, MidiOutputPorts};
-
+use app_dirs::{app_dir, AppDataType, AppInfo};
 use lazy_static::lazy_static;
+use midir::{MidiInput, MidiInputPort, MidiInputPorts, MidiOutput, MidiOutputConnection, MidiOutputPort, MidiOutputPorts};
+use std::thread;
 
 const APP_INFO: AppInfo = AppInfo { name: "midiSampler", author: "onno204" };
 const PREFFERED_MIDI_INPUT: &str = "loopMIDI_IN2";
 const PREFFERED_MIDI_OUTPUT: &str = "loopMIDI_OUT_2";
-
-
-lazy_static! {
-    static ref PADS_MESSAGE_CHANNELS_SENDER: HashMap<&u8, Sender<T>> = {
-        let mut m = HashMap::new();
-        m
-    };
-    static ref PADS_MESSAGE_CHANNELS_RECEIVER: HashMap<&u8, Receiver<T>> = {
-        let mut m = HashMap::new();
-        m
-    };
-}
-
 
 #[allow(dead_code)]
 enum PadColor {
@@ -67,26 +53,12 @@ fn path_check_main_dir() -> () {
     let mut root_dir: PathBuf = app_dir(AppDataType::UserConfig, &APP_INFO, "").unwrap();
 }
 
-fn pad_sample_has_sampling_group(padId: &u8) -> bool {
+fn pad_sample_has_sampling_group(pad_id: &u8) -> bool {
     path_check_main_dir();
     true
 }
 
-fn check_pad_message_channels(padId: &u8) -> (tx, rx) {
-    let pad_channel: std::sync::mpsc = match PADS_MESSAGE_CHANNELS_SENDER.get(padId) {
-        Some(x) => x,
-        None => {
-            let (tx, rx) = mpsc::channel();
-            let mut map = PADS_MESSAGE_CHANNELS_SENDER.lock().unwrap();
-            map.insert(&padId, tx);
-            let mut map = PADS_MESSAGE_CHANNELS_RECEIVER.lock().unwrap();
-            map.insert(&padId, rx);
-            tx
-        }
-    };
-}
-
-fn incomming_midi_action(conn_out: &mut MidiOutputConnection, message: &[u8]) -> () {
+fn incomming_midi_action(conn_out: &mut MidiOutputConnection, message: &[u8], tx: std::sync::mpsc::Sender<String>) -> () {
     let action_id: u8 = message[0];
     let pad_id: u8 = message[1];
     let action_value: u8 = message[2];
@@ -95,6 +67,22 @@ fn incomming_midi_action(conn_out: &mut MidiOutputConnection, message: &[u8]) ->
     if get_sampler_pads().contains(&pad_id) {
         if action == PadState::PadPressed {
             send_midi_data(conn_out, &pad_id, PadColor::Red);
+            thread::spawn(move || {
+                let vals = vec![
+                    String::from("more"),
+                    String::from("messages"),
+                    String::from("for"),
+                    String::from("you"),
+                ];
+
+                for val in vals {
+                    tx.send(val).unwrap();
+                    thread::sleep(Duration::from_secs(1));
+                }
+            });
+
+            println!("1");
+
         } else if action == PadState::PadReleased {
             send_midi_data(conn_out, &pad_id, PadColor::YellowBlink);
         }
@@ -151,10 +139,18 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
     }
 
+    let (tx, rx): (std::sync::mpsc::Sender<String>, std::sync::mpsc::Receiver<String>) = mpsc::channel();
+    thread::spawn(move || {
+        for received in rx {
+            println!("Got: {}", received);
+        }
+    });
+
     // This needs to be called as last because of moving variables
     // _conn_in needs to be a named parameter, because it needs to be kept alive until the end of the scope
     let _conn_in = midi_in.connect(in_port, "midir-test-read-input", move |_stamp, message, _| {
-        incomming_midi_action(&mut conn_out, message);
+        let _tx1 = mpsc::Sender::clone(&tx);
+        incomming_midi_action(&mut conn_out, message, _tx1);
     }, ())?;
 
     println!("Press [Enter] to exit.");
