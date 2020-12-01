@@ -1,18 +1,15 @@
 extern crate midir;
 
-use std::collections::HashMap;
 use std::error::Error;
 use std::io::{stdin, stdout, Write};
 use std::path::PathBuf;
 use std::sync::mpsc;
-use std::sync::Mutex;
+use std::thread;
 use std::thread::sleep;
 use std::time::Duration;
 
 use app_dirs::{app_dir, AppDataType, AppInfo};
-use lazy_static::lazy_static;
 use midir::{MidiInput, MidiInputPort, MidiInputPorts, MidiOutput, MidiOutputConnection, MidiOutputPort, MidiOutputPorts};
-use std::thread;
 
 const APP_INFO: AppInfo = AppInfo { name: "midiSampler", author: "onno204" };
 const PREFFERED_MIDI_INPUT: &str = "loopMIDI_IN2";
@@ -82,7 +79,6 @@ fn incomming_midi_action(conn_out: &mut MidiOutputConnection, message: &[u8], tx
             });
 
             println!("1");
-
         } else if action == PadState::PadReleased {
             send_midi_data(conn_out, &pad_id, PadColor::YellowBlink);
         }
