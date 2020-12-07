@@ -5,7 +5,6 @@ use std::io::{stdin, stdout, Write};
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread;
-use std::thread::sleep;
 use std::time::Duration;
 
 use app_dirs::{app_dir, AppDataType, AppInfo};
@@ -85,27 +84,27 @@ fn incomming_midi_action(conn_out: &mut MidiOutputConnection, message: &[u8], tx
     }
 }
 
-fn disco(conn_out: &mut MidiOutputConnection) -> () {
-    for x in 0..99 {
-        send_midi_data(conn_out, &x, PadColor::Yellow);
-    }
-    sleep(Duration::from_millis(250));
-    for x in 0..99 {
-        send_midi_data(conn_out, &x, PadColor::Green);
-    }
-    sleep(Duration::from_millis(250));
-    for x in 0..99 {
-        send_midi_data(conn_out, &x, PadColor::Red);
-    }
-    sleep(Duration::from_millis(250));
-    disco(conn_out)
-}
+// fn disco(conn_out: &mut MidiOutputConnection) -> () {
+//     for x in 0..99 {
+//         send_midi_data(conn_out, &x, PadColor::Yellow);
+//     }
+//     sleep(Duration::from_millis(250));
+//     for x in 0..99 {
+//         send_midi_data(conn_out, &x, PadColor::Green);
+//     }
+//     sleep(Duration::from_millis(250));
+//     for x in 0..99 {
+//         send_midi_data(conn_out, &x, PadColor::Red);
+//     }
+//     sleep(Duration::from_millis(250));
+//     disco(conn_out)
+// }
 
-fn pads_turn_all_off(conn_out: &mut MidiOutputConnection) -> () {
-    for x in 0..99 {
-        send_midi_data(conn_out, &x, PadColor::Off);
-    }
-}
+// fn pads_turn_all_off(conn_out: &mut MidiOutputConnection) -> () {
+//     for x in 0..99 {
+//         send_midi_data(conn_out, &x, PadColor::Off);
+//     }
+// }
 
 fn run() -> Result<(), Box<dyn Error>> {
     let midi_in: midir::MidiInput = MidiInput::new("midir reading input")?;
