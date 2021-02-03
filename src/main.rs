@@ -5,7 +5,6 @@ use std::io::{stdin, stdout, Write};
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
 
 use app_dirs::{app_dir, AppDataType, AppInfo};
 use midir::{MidiInput, MidiInputPort, MidiInputPorts, MidiOutput, MidiOutputConnection, MidiOutputPort, MidiOutputPorts};
@@ -45,6 +44,12 @@ impl From<u8> for PadState {
     }
 }
 
+struct PadAction {
+    pad_state: PadState,
+    pad_id: u8,
+    value: u8
+}
+
 fn path_check_main_dir() -> () {
     let mut root_dir: PathBuf = app_dir(AppDataType::UserConfig, &APP_INFO, "").unwrap();
 }
@@ -54,33 +59,21 @@ fn pad_sample_has_sampling_group(pad_id: &u8) -> bool {
     true
 }
 
-fn incomming_midi_action(conn_out: &mut MidiOutputConnection, message: &[u8], tx: std::sync::mpsc::Sender<String>) -> () {
+fn incomming_midi_action(message: &[u8], tx: std::sync::mpsc::Sender<PadAction>) -> () {
     let action_id: u8 = message[0];
     let pad_id: u8 = message[1];
     let action_value: u8 = message[2];
     println!("action_id: {:?}, pad_id: {:?}, action_value: {:?}", action_id, pad_id, action_value);
     let action: PadState = action_id.into();
+    let pad_action: PadAction = PadAction{
+        pad_state: action,
+        pad_id: pad_id.clone(),
+        value: action_value
+    };
     if get_sampler_pads().contains(&pad_id) {
-        if action == PadState::PadPressed {
-            send_midi_data(conn_out, &pad_id, PadColor::Red);
-            thread::spawn(move || {
-                let vals = vec![
-                    String::from("more"),
-                    String::from("messages"),
-                    String::from("for"),
-                    String::from("you"),
-                ];
-
-                for val in vals {
-                    tx.send(val).unwrap();
-                    thread::sleep(Duration::from_secs(1));
-                }
-            });
-
-            println!("1");
-        } else if action == PadState::PadReleased {
-            send_midi_data(conn_out, &pad_id, PadColor::YellowBlink);
-        }
+        thread::spawn(move || {
+            tx.send(pad_action).unwrap();
+        });
     }
 }
 
@@ -120,7 +113,6 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     println!("Opening connection with input \"{}\" and output \"{}\"", midi_in.port_name(in_port)?, midi_out.port_name(out_port)?);
     let mut conn_out: MidiOutputConnection = midi_out.connect(out_port, "midir-test")?;
-
     // pads_turn_all_off(&mut conn_out);
 
     for x in get_sampler_pads() {
@@ -134,10 +126,17 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    let (tx, rx): (std::sync::mpsc::Sender<String>, std::sync::mpsc::Receiver<String>) = mpsc::channel();
+    let (tx, rx): (std::sync::mpsc::Sender<PadAction>, std::sync::mpsc::Receiver<PadAction>) = mpsc::channel();
     thread::spawn(move || {
         for received in rx {
-            println!("Got: {}", received);
+            println!("Got: {}", received.pad_id);
+            if received.pad_state == PadState::PadPressed {
+                send_midi_data(&mut conn_out, &received.pad_id, PadColor::Red);
+
+                println!("1");
+            } else if received.pad_state == PadState::PadReleased {
+                send_midi_data(&mut conn_out, &received.pad_id, PadColor::YellowBlink);
+            }
         }
     });
 
@@ -145,7 +144,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     // _conn_in needs to be a named parameter, because it needs to be kept alive until the end of the scope
     let _conn_in = midi_in.connect(in_port, "midir-test-read-input", move |_stamp, message, _| {
         let _tx1 = mpsc::Sender::clone(&tx);
-        incomming_midi_action(&mut conn_out, message, _tx1);
+        incomming_midi_action(message, _tx1);
     }, ())?;
 
     println!("Press [Enter] to exit.");
